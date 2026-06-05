@@ -1,0 +1,2 @@
+# tkinter è incluso con Python su Windows
+# Nessuna dipendenza esterna richiesta
