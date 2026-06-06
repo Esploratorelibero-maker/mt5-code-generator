@@ -1,9 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+import threading
 import os
 from generators.ea_generator import generate_ea
 from generators.indicator_generator import generate_indicator
 from generators.script_generator import generate_script
+from generators.ai_generator import generate_with_ai, load_api_key, save_api_key
 
 
 class MT5CodeGeneratorApp:
@@ -51,10 +53,12 @@ class MT5CodeGeneratorApp:
         self.ea_tab = EATab(self.notebook)
         self.indicator_tab = IndicatorTab(self.notebook)
         self.script_tab = ScriptTab(self.notebook)
+        self.vibe_tab = VibeCodingTab(self.notebook)
 
         self.notebook.add(self.ea_tab.frame, text="  Expert Advisor  ")
         self.notebook.add(self.indicator_tab.frame, text="  Indicatore  ")
         self.notebook.add(self.script_tab.frame, text="  Script  ")
+        self.notebook.add(self.vibe_tab.frame, text="  ✨ Vibe Coding  ")
 
 
 class EATab:
@@ -579,6 +583,172 @@ class ScriptTab:
             defaultextension=".mq5",
             filetypes=[("MQL5 Files", "*.mq5"), ("All Files", "*.*")],
             initialfile=f"{name}.mq5"
+        )
+        if path:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.output.get("1.0", tk.END))
+            messagebox.showinfo("Salvato", f"File salvato in:\n{path}")
+
+
+class VibeCodingTab:
+    def __init__(self, parent):
+        self.frame = ttk.Frame(parent)
+        self._build()
+
+    def _build(self):
+        paned = tk.PanedWindow(self.frame, orient=tk.HORIZONTAL, bg="#1a1a2e",
+                               sashwidth=6, sashrelief=tk.FLAT)
+        paned.pack(fill="both", expand=True)
+
+        left = tk.Frame(paned, bg="#1a1a2e")
+        paned.add(left, minsize=400)
+        self._build_left(left)
+
+        right = tk.Frame(paned, bg="#1a1a2e")
+        paned.add(right, minsize=400)
+        self._build_right(right)
+
+    def _build_left(self, parent):
+        tk.Label(parent, text="✨ Vibe Coding — Descrivi e l'AI scrive il codice",
+                 bg="#1a1a2e", fg="#00d4ff", font=("Segoe UI", 11, "bold")).pack(pady=(12, 4), padx=12, anchor="w")
+        tk.Label(parent,
+                 text="Scrivi in italiano (o inglese) cosa vuoi: tipo di codice, strategia, parametri, logica.",
+                 bg="#1a1a2e", fg="#a0b4c8", font=("Segoe UI", 9), wraplength=380, justify="left").pack(padx=12, anchor="w")
+
+        examples_frame = ttk.LabelFrame(parent, text="Esempi di descrizione", padding=8)
+        examples_frame.pack(fill="x", padx=12, pady=8)
+        examples = [
+            "EA che compra quando RSI scende sotto 30 e vende quando supera 70, stop loss 30 pips, take profit 60 pips",
+            "Indicatore che mostra la media mobile a 50 e 200 periodi con frecce quando si incrociano",
+            "Script che chiude tutte le posizioni in perdita superiore a 10 dollari",
+            "EA con strategia MACD: compra sul crossover rialzista, filtro trend con MA200, trailing stop 20 pips",
+        ]
+        for ex in examples:
+            btn = tk.Button(examples_frame, text=f"▶  {ex}",
+                            command=lambda e=ex: self._insert_example(e),
+                            bg="#0f3460", fg="#a0b4c8", font=("Segoe UI", 8),
+                            relief=tk.FLAT, anchor="w", cursor="hand2",
+                            wraplength=340, justify="left", pady=3)
+            btn.pack(fill="x", pady=2)
+
+        desc_label = ttk.LabelFrame(parent, text="La tua descrizione", padding=8)
+        desc_label.pack(fill="both", expand=True, padx=12, pady=4)
+        self.description = scrolledtext.ScrolledText(
+            desc_label, bg="#0d1117", fg="#c9d1d9", font=("Segoe UI", 10),
+            insertbackground="#00d4ff", selectbackground="#0f3460",
+            relief=tk.FLAT, height=8, wrap=tk.WORD)
+        self.description.pack(fill="both", expand=True)
+
+        model_frame = tk.Frame(parent, bg="#1a1a2e")
+        model_frame.pack(fill="x", padx=12, pady=4)
+        tk.Label(model_frame, text="Modello AI:", bg="#1a1a2e", fg="#a0b4c8",
+                 font=("Segoe UI", 9)).pack(side="left")
+        self.model_var = tk.StringVar(value="gpt-4o-mini")
+        model_combo = ttk.Combobox(model_frame, textvariable=self.model_var,
+                                   values=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
+                                   state="readonly", width=18)
+        model_combo.pack(side="left", padx=8)
+        tk.Label(model_frame, text="(gpt-4o-mini = veloce ed economico)",
+                 bg="#1a1a2e", fg="#555577", font=("Segoe UI", 8)).pack(side="left")
+
+        self.gen_btn = tk.Button(parent, text="✨ GENERA CON AI",
+                                 command=self._generate,
+                                 bg="#7c3aed", fg="#ffffff", font=("Segoe UI", 11, "bold"),
+                                 relief=tk.FLAT, pady=10, cursor="hand2")
+        self.gen_btn.pack(fill="x", padx=12, pady=6)
+
+        self.status_var = tk.StringVar(value="")
+        self.status_label = tk.Label(parent, textvariable=self.status_var,
+                                     bg="#1a1a2e", fg="#a0b4c8", font=("Segoe UI", 9))
+        self.status_label.pack(padx=12, anchor="w")
+
+        api_frame = ttk.LabelFrame(parent, text="Impostazioni API OpenAI", padding=8)
+        api_frame.pack(fill="x", padx=12, pady=8)
+        tk.Label(api_frame, text="Chiave API:", bg="#1a1a2e", fg="#a0b4c8",
+                 font=("Segoe UI", 9)).pack(anchor="w")
+        key_row = tk.Frame(api_frame, bg="#1a1a2e")
+        key_row.pack(fill="x", pady=4)
+        self.api_key_var = tk.StringVar(value=load_api_key())
+        self.api_entry = ttk.Entry(key_row, textvariable=self.api_key_var, show="*", width=32)
+        self.api_entry.pack(side="left")
+        tk.Button(key_row, text="Salva", command=self._save_key,
+                  bg="#0f3460", fg="#e0e0e0", font=("Segoe UI", 8, "bold"),
+                  relief=tk.FLAT, padx=10, pady=4, cursor="hand2").pack(side="left", padx=6)
+        tk.Label(api_frame,
+                 text="Ottieni la tua chiave su platform.openai.com → API keys\nViene salvata localmente sul tuo PC.",
+                 bg="#1a1a2e", fg="#555577", font=("Segoe UI", 8), justify="left").pack(anchor="w")
+
+    def _build_right(self, parent):
+        tk.Label(parent, text="Codice MQL5 Generato dall'AI", bg="#1a1a2e", fg="#00d4ff",
+                 font=("Segoe UI", 10, "bold")).pack(pady=(8, 4))
+        self.output = scrolledtext.ScrolledText(
+            parent, bg="#0d1117", fg="#c9d1d9", font=("Consolas", 10),
+            insertbackground="#00d4ff", selectbackground="#0f3460",
+            relief=tk.FLAT, wrap=tk.NONE)
+        self.output.pack(fill="both", expand=True, padx=8, pady=4)
+        btn_frame = tk.Frame(parent, bg="#1a1a2e")
+        btn_frame.pack(fill="x", padx=8, pady=6)
+        tk.Button(btn_frame, text="📋 Copia", command=self._copy,
+                  bg="#0f3460", fg="#e0e0e0", font=("Segoe UI", 9, "bold"),
+                  relief=tk.FLAT, padx=16, pady=6, cursor="hand2").pack(side="left", padx=4)
+        tk.Button(btn_frame, text="💾 Salva .mq5", command=self._save,
+                  bg="#0f3460", fg="#e0e0e0", font=("Segoe UI", 9, "bold"),
+                  relief=tk.FLAT, padx=16, pady=6, cursor="hand2").pack(side="left", padx=4)
+
+    def _insert_example(self, text):
+        self.description.delete("1.0", tk.END)
+        self.description.insert("1.0", text)
+
+    def _save_key(self):
+        key = self.api_key_var.get().strip()
+        if save_api_key(key):
+            messagebox.showinfo("Salvato", "Chiave API salvata!")
+        else:
+            messagebox.showerror("Errore", "Impossibile salvare la chiave.")
+
+    def _generate(self):
+        desc = self.description.get("1.0", tk.END).strip()
+        api_key = self.api_key_var.get().strip()
+        if not desc:
+            messagebox.showwarning("Attenzione", "Scrivi una descrizione prima di generare.")
+            return
+        if not api_key:
+            messagebox.showwarning("API Key mancante",
+                                   "Inserisci la tua chiave API OpenAI nel campo in basso.")
+            return
+
+        self.gen_btn.config(state="disabled", text="⏳ Generazione in corso...")
+        self.status_var.set("Sto chiamando l'AI, attendi...")
+        self.output.delete("1.0", tk.END)
+
+        def run():
+            code, error = generate_with_ai(desc, api_key, self.model_var.get())
+            self.frame.after(0, lambda: self._on_done(code, error))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _on_done(self, code, error):
+        self.gen_btn.config(state="normal", text="✨ GENERA CON AI")
+        if error:
+            self.status_var.set(f"Errore: {error}")
+            messagebox.showerror("Errore AI", error)
+        else:
+            self.output.delete("1.0", tk.END)
+            self.output.insert("1.0", code)
+            self.status_var.set("Codice generato con successo!")
+
+    def _copy(self):
+        code = self.output.get("1.0", tk.END)
+        self.frame.clipboard_clear()
+        self.frame.clipboard_append(code)
+        messagebox.showinfo("Copiato", "Codice copiato negli appunti!")
+
+    def _save(self):
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            defaultextension=".mq5",
+            filetypes=[("MQL5 Files", "*.mq5"), ("All Files", "*.*")],
+            initialfile="VibeCoded.mq5"
         )
         if path:
             with open(path, "w", encoding="utf-8") as f:
